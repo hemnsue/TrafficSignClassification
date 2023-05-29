@@ -1,0 +1,220 @@
+#%%
+import numpy as np
+import pandas as pd
+import os
+import cv2
+import keras as ks
+from PIL import Image
+from sklearn.model_selection import train_test_split
+from keras.preprocessing.image import ImageDataGenerator
+from keras.optimizers import Adam
+from sklearn.metrics import accuracy_score
+np.random.seed(42);
+import matplotlib.pyplot as plt
+from matplotlib import style
+style.use('fivethirtyeight');
+#%%
+datadir="D:\Python\classi\gtsrb-german-traffic-sign/";
+train_path="D:\Python\classi\gtsrb-german-traffic-sign\Train/";
+test_path="D:\Python\classi\gtsrb-german-traffic-sign\Test/";
+#%%TOTAL NUMBER OF CLASSES
+num_categories=len(os.listdir(train_path));
+classes = { 0:'Speed limit (20km/h)',
+            1:'Speed limit (30km/h)', 
+            2:'Speed limit (50km/h)', 
+            3:'Speed limit (60km/h)', 
+            4:'Speed limit (70km/h)', 
+            5:'Speed limit (80km/h)', 
+            6:'End of speed limit (80km/h)', 
+            7:'Speed limit (100km/h)', 
+            8:'Speed limit (120km/h)', 
+            9:'No passing', 
+            10:'No passing veh over 3.5 tons', 
+            11:'Right-of-way at intersection', 
+            12:'Priority road', 
+            13:'Yield', 
+            14:'Stop', 
+            15:'No vehicles', 
+            16:'Veh > 3.5 tons prohibited', 
+            17:'No entry', 
+            18:'General caution', 
+            19:'Dangerous curve left', 
+            20:'Dangerous curve right', 
+            21:'Double curve', 
+            22:'Bumpy road', 
+            23:'Slippery road', 
+            24:'Road narrows on the right', 
+            25:'Road work', 
+            26:'Traffic signals', 
+            27:'Pedestrians', 
+            28:'Children crossing', 
+            29:'Bicycles crossing', 
+            30:'Beware of ice/snow',
+            31:'Wild animals crossing', 
+            32:'End speed + passing limits', 
+            33:'Turn right ahead', 
+            34:'Turn left ahead', 
+            35:'Ahead only', 
+            36:'Go straight or right', 
+            37:'Go straight or left', 
+            38:'Keep right', 
+            39:'Keep left', 
+            40:'Roundabout mandatory', 
+            41:'End of no passing', 
+            42:'End no passing veh > 3.5 tons' }
+#%%TRAINING DATA VISUALIZATION
+folders=os.listdir(train_path);
+train_number=[];
+class_num=[];
+for folder in folders:
+    train_files=os.listdir(train_path+"/"+folder);
+    train_number.append(len(train_files));
+    class_num.append(classes[int(folder)]);
+ziplist=zip(train_number,class_num);
+sortedpairs=sorted(ziplist);
+tupes=zip(*sortedpairs);
+train_number,class_num=[list(tuple) for tuple in tupes];
+
+plt.figure(figsize=(21,10));
+plt.bar(class_num,train_number);
+plt.xticks(class_num,rotation="vertical");
+plt.show();
+
+
+
+# %%TRAINING DATA COLLECTION
+image_data = []
+image_labels = []
+
+for i in range(num_categories):
+    path = datadir + '/Train/' + str(i)
+    images = os.listdir(path)
+
+    for img in images:
+        try:
+            image = cv2.imread(path + '/' + img)
+            image_fromarray = Image.fromarray(image, 'RGB')
+            resize_image = image_fromarray.resize((30, 30))
+            image_data.append(np.array(resize_image))
+            image_labels.append(i)
+        except:
+            print("Error in " + img)
+
+# Changing the list to numpy array
+image_data = np.array(image_data)
+image_labels = np.array(image_labels)
+
+print(image_data.shape, image_labels.shape)
+# %%SHUFFLING THE DATA
+shuffle_indexes = np.arange(image_data.shape[0])
+np.random.shuffle(shuffle_indexes)
+image_data = image_data[shuffle_indexes]
+image_labels = image_labels[shuffle_indexes]
+
+#%%SPLITTING DATA INTO TRAINING AND VALIDATION SETS
+X_train, X_val, y_train, y_val = train_test_split(image_data, image_labels, test_size=0.3, random_state=42, shuffle=True)
+
+X_train = X_train/255 
+X_val = X_val/255
+
+print("X_train.shape", X_train.shape)
+print("X_valid.shape", X_val.shape)
+print("y_train.shape", y_train.shape)
+print("y_valid.shape", y_val.shape)
+
+#%%
+y_train = ks.utils.to_categorical(y_train, num_categories)
+y_val = ks.utils.to_categorical(y_val, num_categories)
+
+print(y_train.shape)
+print(y_val.shape)
+
+#%%MODEL CREATION
+model = ks.models.Sequential([    
+    ks.layers.Conv2D(filters=16, kernel_size=(3,3), activation='relu', input_shape=(30,30,3)),
+    ks.layers.Conv2D(filters=32, kernel_size=(3,3), activation='relu'),
+    ks.layers.MaxPool2D(pool_size=(2, 2)),
+    ks.layers.BatchNormalization(axis=-1),
+    
+    ks.layers.Conv2D(filters=64, kernel_size=(3,3), activation='relu'),
+    ks.layers.Conv2D(filters=128, kernel_size=(3,3), activation='relu'),
+    ks.layers.MaxPool2D(pool_size=(2, 2)),
+    ks.layers.BatchNormalization(axis=-1),
+    
+    ks.layers.Flatten(),
+    ks.layers.Dense(512, activation='relu'),
+    ks.layers.BatchNormalization(),
+    ks.layers.Dropout(rate=0.5),
+    
+    ks.layers.Dense(43, activation='softmax')
+])
+#%%
+lr = 0.001
+epochs = 30
+
+opt = Adam(lr=lr, decay=lr / (epochs * 0.5))
+model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
+
+#%%AUGUMENTING DATA AND TRAINING MODEL
+aug = ImageDataGenerator(
+    rotation_range=10,
+    zoom_range=0.15,
+    width_shift_range=0.1,
+    height_shift_range=0.1,
+    shear_range=0.15,
+    horizontal_flip=False,
+    vertical_flip=False,
+    fill_mode="nearest")
+
+history = model.fit(aug.flow(X_train, y_train, batch_size=32), epochs=epochs, validation_data=(X_val, y_val))
+#%%
+model.save("model.h5")
+model.save_weights("D:\Python\classi/nig")
+dir(aug)
+#%%MODEL EVALUATION
+pd.DataFrame(history.history).plot(figsize=(8, 5))
+plt.grid(True)
+plt.gca().set_ylim(0, 1)
+plt.show()
+
+#%%MODEL ACCURACY
+test = pd.read_csv(datadir + '/Test.csv')
+
+labels = test["ClassId"].values
+imgs = test["Path"].values
+
+data =[]
+
+for img in imgs:
+    try:
+        image = cv2.imread(datadir + '/' +img)
+        image_fromarray = Image.fromarray(image, 'RGB')
+        resize_image = image_fromarray.resize((30, 30))
+        data.append(np.array(resize_image))
+    except:
+        print("Error in " + img)
+X_test = np.array(data)
+X_test = X_test/255
+
+pred=np.argmax(model.predict(X_test), axis=-1)
+#Accuracy with the test data
+print('Test Data accuracy: ',accuracy_score(labels, pred)*100)
+# %%MODEL TESTING
+
+plt.figure(figsize = (25, 25))
+
+start_index = 0
+for i in range(25):
+    plt.subplot(5, 5, i + 1)
+    plt.grid(False)
+    plt.xticks([])
+    plt.yticks([])
+    prediction = pred[start_index + i]
+    actual = labels[start_index + i]
+    col = 'g'
+    if prediction != actual:
+        col = 'r'
+    plt.xlabel('Actual={} || Pred={}'.format(classes[actual],classes[prediction]), color = col)
+    plt.imshow(X_test[start_index + i])
+plt.show()
+# %%
